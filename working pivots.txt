@@ -1,0 +1,57 @@
+df = df_raw.stack([0,1], future_stack=True).reset_index().copy()
+df.columns = ['Timestamp', 'Variable', 'Ticker', 'Value']
+df = df.pivot(index=['Timestamp', 'Ticker'], columns='Variable', values='Value').reset_index().sort_values('Timestamp')
+df.columns.name = None
+
+threshold = 0.05
+
+# price = df.groupby('Ticker')['Close']
+df_t = df[df['Ticker'] == 'AAPL'].copy()
+prices = df_t['Close']
+highs = df_t['High']
+lows = df_t['Low']
+
+zz_price = [np.nan] * len(df_t)
+zz_type = [np.nan] * len(df_t)
+last_pivot_idx = 0
+last_pivot_price = prices.iloc[0]
+candidate_extreme_idx = 0
+candidate_extreme_price = prices.iloc[0]
+direction = None # initialize
+
+for i, price in enumerate(prices):
+    change_pct = (price - last_pivot_price) / last_pivot_price
+
+    if direction is None:
+        # No direction yet: look for first significant move
+        if abs(change_pct) >= threshold:
+            direction = 'up' if change_pct > 0 else 'down'
+            candidate_extreme_idx = i
+            candidate_extreme_price = price
+            zz_price[last_pivot_idx] = last_pivot_price
+
+    elif direction == 'up':
+        if price > candidate_extreme_price:
+            candidate_extreme_price = price
+            candidate_extreme_idx = i
+        elif price < candidate_extreme_price * (1 - threshold):
+            # Commit the previous high as a pivot
+            zz_price[candidate_extreme_idx] = candidate_extreme_price
+            last_pivot_price = price
+            last_pivot_idx = i
+            candidate_extreme_price = price
+            candidate_extreme_idx = i
+            direction = 'down'
+
+    elif direction == 'down':
+        if price < candidate_extreme_price:
+            candidate_extreme_price = price
+            candidate_extreme_idx = i
+        elif price > candidate_extreme_price * (1 + threshold):
+            # Commit the previous low as a pivot
+            zz_price[candidate_extreme_idx] = candidate_extreme_price
+            last_pivot_price = price
+            last_pivot_idx = i
+            candidate_extreme_price = price
+            candidate_extreme_idx = i
+            direction = 'up'
