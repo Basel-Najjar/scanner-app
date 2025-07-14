@@ -1,6 +1,15 @@
-import pandas as pd
 import numpy as np
-from ta.volatility import average_true_range
+import pandas as pd
+from .constants import default_lookback
+from .utils import calculate_atr
+
+
+def calculate_scaled_slope(df: pd.DataFrame, lookback: int = default_lookback) -> float:
+    atr = calculate_atr(df, lookback).to_numpy()
+    close = df.sort_values("Timestamp")["Close"]
+    sma = close.rolling(lookback).mean().iloc[-lookback:].to_numpy()
+    raw_slope = np.polyfit(range(lookback), sma[-lookback:], deg=1)[0]
+    return raw_slope / atr[-1]
 
 
 def identify_pivots(
@@ -15,9 +24,7 @@ def identify_pivots(
         candidate_price = close[0]
 
     if threshold == "atr":
-        atr = average_true_range(
-            df["High"], df["Low"], df["Close"], window=14, fillna=False
-        )
+        atr = calculate_atr(df, window=default_lookback).to_numpy()
         atr_pct = atr / df["Close"]
         atr_pct = atr_pct.replace(0, np.nan)
         threshold = atr_pct.fillna(value=atr_pct.mean()).values
