@@ -12,6 +12,60 @@ def calculate_scaled_slope(df: pd.DataFrame, lookback: int = default_lookback) -
     return raw_slope / atr[-1]
 
 
+def categorize_pivot_trend(
+    df: pd.DataFrame, n_pivots: int = 4, thresh: float = 0.0
+) -> dict:
+    pivot_high_periods = df[df["pivot_type"] == "high"]
+    pivot_low_periods = df[df["pivot_type"] == "low"]
+    higher_pivot_highs = (
+        pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
+    )
+    higher_pivot_lows = (
+        pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
+    )
+    lower_pivot_highs = (
+        pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
+    )
+    lower_pivot_lows = (
+        pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
+    )
+    if higher_pivot_highs and higher_pivot_lows:
+        return "uptrend"
+    elif lower_pivot_highs and lower_pivot_lows:
+        return "downtrend"
+    else:
+        return "no trend"
+
+
+def categorize_sentiment(
+    value: float,
+    sentiment_value_map={
+        "bullish": 0.2,
+        "non-bearish": 0.1,
+        "neutral": -0.1,
+        "non-bullish": -0.2,
+    },
+):
+    sentiment = None
+    if value >= sentiment_value_map["bullish"]:
+        sentiment = "bullish"
+    elif (value < sentiment_value_map["bullish"]) and (
+        value >= sentiment_value_map["non-bearish"]
+    ):
+        sentiment = "non-bearish"
+    elif (value < sentiment_value_map["non-bearish"]) and (
+        value >= sentiment_value_map["neutral"]
+    ):
+        sentiment = "neutral"
+    elif (value < sentiment_value_map["neutral"]) and (
+        sentiment_value_map["non-bullish"] >= -0.2
+    ):
+        sentiment = "non-bullish"
+    elif value < sentiment_value_map["non-bullish"]:
+        sentiment = "bearish"
+    return sentiment
+
+
 def identify_pivots(
     df: pd.DataFrame, threshold: float | str = 0.05, use_high_low: bool = False
 ) -> pd.DataFrame:
@@ -90,7 +144,7 @@ def identify_pivots(
                 candidate_extreme_idx = i
                 direction = "up"
 
-    df["Pivot Level"] = zz_price
-    df["Pivot Type"] = zz_type
-    df["Threshold"] = threshold
+    df["pivot_level"] = zz_price
+    df["pivot_type"] = zz_type
+    df["threshold"] = threshold
     return df
