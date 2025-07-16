@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from .constants import default_lookback
-from .utils import calculate_atr
+from .utils import calculate_atr, get_last_market_day
 
 
 def calculate_scaled_slope(df: pd.DataFrame, lookback: int = default_lookback) -> float:
@@ -12,70 +12,86 @@ def calculate_scaled_slope(df: pd.DataFrame, lookback: int = default_lookback) -
     return raw_slope / atr[-1]
 
 
-def categorize_pivot_trend(
-    df: pd.DataFrame, n_pivots: int = 4, thresh: float = 0.0
+def calculate_cumulative_pivot_levels(
+    df: pd.DataFrame,
+    n_pivots: int = 4,
+    max_lookback: pd.Timestamp = 90,
+    # thresh: float = 0.0,
 ) -> dict:
+    last_market_day = get_last_market_day()
+    lookback_thresh = pd.Timestamp(last_market_day) - pd.Timedelta(f"{max_lookback}d")
     pivot_high_periods = df[df["pivot_type"] == "high"]
     pivot_low_periods = df[df["pivot_type"] == "low"]
-    higher_pivot_highs = (
-        pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
-    )
-    higher_pivot_lows = (
-        pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
-    )
-    lower_pivot_highs = (
-        pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
-    )
-    lower_pivot_lows = (
-        pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
-    )
-    if higher_pivot_highs and higher_pivot_lows:
-        return "uptrend"
-    elif lower_pivot_highs and lower_pivot_lows:
-        return "downtrend"
+    # higher_pivot_highs = (
+    #     pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
+    # )
+    # higher_pivot_lows = (
+    #     pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
+    # )
+    # lower_pivot_highs = (
+    #     pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
+    # )
+    # lower_pivot_lows = (
+    #     pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
+    # )
+    if (pivot_high_periods["Timestamp"] > lookback_thresh).sum() < n_pivots:
+        return (np.nan, np.nan)
+    elif (pivot_low_periods["Timestamp"] > lookback_thresh).sum() < n_pivots:
+        return (np.nan, np.nan)
     else:
-        return "no trend"
+        return (
+            pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum(),
+            pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum(),
+        )
+    # if higher_pivot_highs and higher_pivot_lows:
+    #     return "uptrend"
+    # elif lower_pivot_highs and lower_pivot_lows:
+    #     return "downtrend"
+    # else:
+    #     return "no trend"
 
 
-def categorize_sentiment(
-    value: float,
-    sentiment_value_map={
-        "bullish": 0.2,
-        "non-bearish": 0.1,
-        "neutral": -0.1,
-        "non-bullish": -0.2,
-    },
-):
-    sentiment = None
-    if value >= sentiment_value_map["bullish"]:
-        sentiment = "bullish"
-    elif (value < sentiment_value_map["bullish"]) and (
-        value >= sentiment_value_map["non-bearish"]
-    ):
-        sentiment = "non-bearish"
-    elif (value < sentiment_value_map["non-bearish"]) and (
-        value >= sentiment_value_map["neutral"]
-    ):
-        sentiment = "neutral"
-    elif (value < sentiment_value_map["neutral"]) and (
-        sentiment_value_map["non-bullish"] >= -0.2
-    ):
-        sentiment = "non-bullish"
-    elif value < sentiment_value_map["non-bullish"]:
-        sentiment = "bearish"
-    return sentiment
+# def categorize_slope(
+#     value: float,
+#     sentiment_value_map={
+#         "bullish": 0.2,
+#         "non-bearish": 0.1,
+#         "neutral": -0.1,
+#         "non-bullish": -0.2,
+#     },
+# ):
+#     sentiment = None
+#     if value >= sentiment_value_map["bullish"]:
+#         sentiment = "uptrend"
+#     elif (value < sentiment_value_map["bullish"]) and (
+#         value >= sentiment_value_map["non-bearish"]
+#     ):
+#         sentiment = "weak uptrend"
+#     elif (value < sentiment_value_map["non-bearish"]) and (
+#         value >= sentiment_value_map["neutral"]
+#     ):
+#         sentiment = "neutral"
+#     elif (value < sentiment_value_map["neutral"]) and (
+#         sentiment_value_map["non-bullish"] >= -0.2
+#     ):
+#         sentiment = "weak downtrend"
+#     elif value < sentiment_value_map["non-bullish"]:
+#         sentiment = "downtrend"
+#     return sentiment
 
 
 def identify_pivots(
-    df: pd.DataFrame, threshold: float | str = 0.05, use_high_low: bool = False
+    df: pd.DataFrame, threshold: str | float = 0.05, use_high_low: bool = False
 ) -> pd.DataFrame:
     if use_high_low:
         highs = df["High"].values
         lows = df["Low"].values
-        candidate_price = highs[0]
+        candidate_extreme_price = highs[0]
+        last_pivot_price = highs[0]
     else:
         close = df["Close"].values
-        candidate_price = close[0]
+        candidate_extreme_price = close[0]
+        last_pivot_price = close[0]
 
     if threshold == "atr":
         atr = calculate_atr(df, window=default_lookback).to_numpy()
@@ -88,9 +104,7 @@ def identify_pivots(
     zz_price = [np.nan] * len(df)
     zz_type = [np.nan] * len(df)
     last_pivot_idx = 0
-    last_pivot_price = highs[0] if use_high_low else close[0]
     candidate_extreme_idx = 0
-    candidate_extreme_price = highs[0] if use_high_low else close[0]
     direction = None  # initialize
 
     for i in range(len(df)):
