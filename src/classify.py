@@ -4,7 +4,7 @@ from .constants import default_lookback
 from .utils import calculate_atr, get_last_market_day
 
 
-def calculate_scaled_slope(df: pd.DataFrame, lookback: int = default_lookback) -> float:
+def calculate_sma_slope(df: pd.DataFrame, lookback: int = default_lookback) -> float:
     atr = calculate_atr(df, lookback).to_numpy()
     close = df.sort_values("Timestamp")["Close"]
     sma = close.rolling(lookback).mean().iloc[-lookback:].to_numpy()
@@ -13,75 +13,48 @@ def calculate_scaled_slope(df: pd.DataFrame, lookback: int = default_lookback) -
 
 
 def calculate_cumulative_pivot_levels(
-    df: pd.DataFrame,
-    n_pivots: int = 4,
-    max_lookback: pd.Timestamp = 90,
-    # thresh: float = 0.0,
+    df: pd.DataFrame, n_pivots: int = 3, thresh: float = 0.0
 ) -> dict:
-    last_market_day = get_last_market_day()
-    lookback_thresh = pd.Timestamp(last_market_day) - pd.Timedelta(f"{max_lookback}d")
     pivot_high_periods = df[df["pivot_type"] == "high"]
     pivot_low_periods = df[df["pivot_type"] == "low"]
-    # higher_pivot_highs = (
-    #     pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
-    # )
-    # higher_pivot_lows = (
-    #     pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() > thresh
-    # )
-    # lower_pivot_highs = (
-    #     pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
-    # )
-    # lower_pivot_lows = (
-    #     pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum() < -thresh
-    # )
-    if (pivot_high_periods["Timestamp"] > lookback_thresh).sum() < n_pivots:
-        return (np.nan, np.nan)
-    elif (pivot_low_periods["Timestamp"] > lookback_thresh).sum() < n_pivots:
-        return (np.nan, np.nan)
-    else:
-        return (
-            pivot_high_periods.iloc[-n_pivots:]["Close"].pct_change().sum(),
-            pivot_low_periods.iloc[-n_pivots:]["Close"].pct_change().sum(),
-        )
-    # if higher_pivot_highs and higher_pivot_lows:
-    #     return "uptrend"
-    # elif lower_pivot_highs and lower_pivot_lows:
-    #     return "downtrend"
-    # else:
-    #     return "no trend"
 
+    pivot_high_pct_change = (
+        pivot_high_periods.iloc[-n_pivots:]["pivot_level"].pct_change().dropna()
+    )
+    pivot_low_pct_change = (
+        pivot_low_periods.iloc[-n_pivots:]["pivot_level"].pct_change().dropna()
+    )
 
-# def categorize_slope(
-#     value: float,
-#     sentiment_value_map={
-#         "bullish": 0.2,
-#         "non-bearish": 0.1,
-#         "neutral": -0.1,
-#         "non-bullish": -0.2,
-#     },
-# ):
-#     sentiment = None
-#     if value >= sentiment_value_map["bullish"]:
-#         sentiment = "uptrend"
-#     elif (value < sentiment_value_map["bullish"]) and (
-#         value >= sentiment_value_map["non-bearish"]
-#     ):
-#         sentiment = "weak uptrend"
-#     elif (value < sentiment_value_map["non-bearish"]) and (
-#         value >= sentiment_value_map["neutral"]
-#     ):
-#         sentiment = "neutral"
-#     elif (value < sentiment_value_map["neutral"]) and (
-#         sentiment_value_map["non-bullish"] >= -0.2
-#     ):
-#         sentiment = "weak downtrend"
-#     elif value < sentiment_value_map["non-bullish"]:
-#         sentiment = "downtrend"
-#     return sentiment
+    higher_highs = (pivot_high_pct_change > thresh).all()
+    lower_highs = (pivot_low_pct_change < thresh).all()
+    higher_lows = (pivot_high_pct_change > thresh).all()
+    lower_lows = (pivot_low_pct_change < thresh).all()
+
+    return {
+        "cumul_pivot_highs": pivot_high_pct_change.sum(),
+        "cumul_pivot_lows": pivot_low_pct_change.sum(),
+        "higher_highs_higher_lows": (higher_highs and higher_lows),
+        "lower_highs_lower_lows": (lower_highs and lower_lows),
+        "pivot_high_dates": str(
+            [
+                x.strftime("%Y-%m-%d")
+                for x in pivot_high_periods["Timestamp"].iloc[-n_pivots:].tolist()
+            ]
+        ),
+        "pivot_low_dates": str(
+            [
+                x.strftime("%Y-%m-%d")
+                for x in pivot_low_periods["Timestamp"].iloc[-n_pivots:].tolist()
+            ]
+        ),
+    }
 
 
 def identify_pivots(
-    df: pd.DataFrame, threshold: str | float = 0.05, use_high_low: bool = False
+    df: pd.DataFrame,
+    threshold: str | float = 0.05,
+    atr_scaling: float = 1.0,
+    use_high_low: bool = False,
 ) -> pd.DataFrame:
     if use_high_low:
         highs = df["High"].values
@@ -97,7 +70,7 @@ def identify_pivots(
         atr = calculate_atr(df, window=default_lookback).to_numpy()
         atr_pct = atr / df["Close"]
         atr_pct = atr_pct.replace(0, np.nan)
-        threshold = atr_pct.fillna(value=atr_pct.mean()).values
+        threshold = atr_pct.fillna(value=atr_pct.mean()).values * atr_scaling
     elif type(threshold) is float:
         threshold = [threshold] * len(df)
 
