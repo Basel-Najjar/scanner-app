@@ -1,7 +1,8 @@
 import numpy as np
 import pandas as pd
 from .constants import default_lookback
-from .technicals import calculate_atr, get_last_market_day
+from .technicals import calculate_atr
+from .utils import get_last_market_day
 
 
 def calculate_sma_slope(df: pd.DataFrame, lookback: int = default_lookback) -> float:

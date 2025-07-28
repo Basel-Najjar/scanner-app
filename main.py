@@ -4,11 +4,16 @@ import streamlit as st
 from datetime import timedelta
 import pandas as pd
 from src.pull_data import pull_watchlist_data
-from src.utils import import_watchlist, get_last_market_day, get_market_hours
+from src.utils import (
+    import_watchlist,
+    get_last_market_day,
+    reaggregate_bars,
+)
 from src.market_profile import (
     calculate_momentum_ranks,
     scan_momentum_ranks,
     plot_scan_results,
+    plot_combined_charts,
 )
 
 
@@ -32,6 +37,7 @@ def load_data(watchlist, starting_day, last_market_day):
 def main():
     st.title("Momentum Scan")
     watchlist = load_watchlist()
+    # Interactive dataframe
     st.dataframe(pd.DataFrame(watchlist, columns=["Watchlist"]))
     last_market_day = load_last_market_day()
     starting_day = last_market_day - timedelta(days=30)
@@ -45,7 +51,9 @@ def main():
 
         st.success("Scan complete.")
         for symbol in scan.columns:
-            plot = plot_scan_results(scan, symbol)
+            df_symbol = reaggregate_bars(df_raw[symbol.split(":")[0]])
+            plot = plot_combined_charts(scan, df_symbol, symbol)
+            plot.show()
             st.plotly_chart(plot)
 
 

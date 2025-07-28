@@ -5,6 +5,8 @@ from .utils import get_market_hours, get_last_market_day, reaggregate_bars
 from .constants import extreme_threshold, breakout_threshold, string_date_format
 from datetime import timedelta
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 
 def calculate_tpo(
@@ -221,19 +223,20 @@ def calculate_momentum_ranks(df: pd.DataFrame) -> pd.DataFrame:
         value_areas = {}
 
         for date in available_dates:
-            str_date = date.strftime(string_date_format)
-            prev_date = (date - timedelta(days=1)).strftime(string_date_format)
-
-            tpo = calculate_tpo(df_symbol, str_date)
-            value_areas[str_date] = calculate_value_area(tpo)
-
-            if prev_date in value_areas:
-                df_session = df_symbol.loc[str_date].copy()
+            str_current_date = date.strftime(string_date_format)
+            prev_date = available_dates[available_dates.index(date) - 1]
+            str_prev_date = prev_date.strftime(string_date_format)
+            tpo = calculate_tpo(df_symbol, str_current_date)
+            value_areas[str_current_date] = calculate_value_area(tpo)
+            if str_prev_date in value_areas:
+                df_session = df_symbol.loc[str_current_date].copy()
 
                 opening, extension, closing = rank_momentum(
-                    df_session, value_areas[str_date], value_areas[prev_date]
+                    df_session,
+                    value_areas[str_current_date],
+                    value_areas[str_prev_date],
                 )
-                results[symbol][str_date] = {
+                results[symbol][str_current_date] = {
                     "Opening Rank": opening,
                     "Extension Rank": extension,
                     "Closing Rank": closing,
@@ -278,4 +281,63 @@ def plot_scan_results(df: pd.DataFrame, symbol: str):
     fig.add_hline(y=9, line_color="red", line_dash="dot", line_width=0.5)
     fig.add_hline(y=-9, line_color="red", line_dash="dot", line_width=0.5)
     fig.update_yaxes(range=[-11, 11])
+    return fig
+
+
+def plot_combined_charts(
+    df_momentum: pd.DataFrame, df_symbol: pd.DataFrame, symbol: str
+):
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        row_heights=[0.6, 0.4],
+        subplot_titles=(f"{symbol}", ""),
+    )
+
+    # OHLC Chart
+    fig.add_trace(
+        go.Candlestick(
+            x=df_symbol.index,
+            open=df_symbol["Open"],
+            high=df_symbol["High"],
+            low=df_symbol["Low"],
+            close=df_symbol["Close"],
+            name="OHLC",
+        ),
+        row=1,
+        col=1,
+    )
+
+    # Momentum Bar Chart
+    fig.add_trace(
+        go.Bar(
+            x=df_momentum.index,
+            y=df_momentum[symbol],
+            name="Momentum",
+            text=df_momentum[symbol],
+            textposition="auto",
+        ),
+        row=2,
+        col=1,
+    )
+
+    # Add horizontal lines to bar chart
+    for y, color in zip([5, -5, 9, -9], ["blue", "blue", "red", "red"]):
+        fig.add_shape(
+            type="line",
+            x0=df_momentum.index.min(),
+            x1=df_momentum.index.max(),
+            y0=y,
+            y1=y,
+            line=dict(color=color, width=0.5, dash="dot"),
+            row=2,
+            col=1,
+        )
+
+    # Layout updates
+    fig.update_yaxes(range=[-11, 11], row=2, col=1)
+    fig.update_layout(height=700, showlegend=False)
+    fig.update(layout_xaxis_rangeslider_visible=False)
     return fig
